@@ -293,8 +293,8 @@
         <h2>Gerenciar Produtos</h2>
         <input type="text" id="prod-nome" placeholder="Nome do produto">
         <input type="text" id="prod-categoria" placeholder="Categoria (ex: Fruta, Verdura)">
-        <input type="number" id="prod-preco-normal" placeholder="Preço normal (R$)" step="0.01">
-        <input type="number" id="prod-preco-revenda" placeholder="Preço revenda (R$)" step="0.01">
+        <input type="number" id="prod-preco-normal" placeholder="Preço normal (R$) - opcional" step="0.01">
+        <input type="number" id="prod-preco-revenda" placeholder="Preço revenda (R$) - opcional" step="0.01">
         <input type="text" id="prod-emoji" placeholder="Emoji (🍎🍌 etc.)">
         <input type="text" id="prod-imagem" placeholder="URL da imagem (opcional)">
         <textarea id="prod-descricao" placeholder="Descrição (opcional)" rows="2"></textarea>
@@ -308,7 +308,6 @@
           <tbody></tbody>
         </table>
       </div>
-
       <div class="promo-panel" style="margin-top:30px;">
         <h2>Gerenciar Promoções</h2>
         <input type="text" id="promo-nome" placeholder="Nome da promoção (ex: Leve 3 por R$5,00)">
@@ -342,7 +341,7 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
 
-    // Elementos da UI
+    // UI elements
     const vitrineContainer = document.getElementById('vitrine-container');
     const loadingEl = document.getElementById('loading');
     const produtosGrid = document.getElementById('produtos-grid');
@@ -363,7 +362,6 @@
     const carrinhoTotal = document.getElementById('carrinho-total');
     const btnFinalizar = document.getElementById('btn-finalizar');
     const btnFecharCarrinho = document.getElementById('btn-fechar-carrinho');
-    // Promoções
     const promoNome = document.getElementById('promo-nome');
     const promoQuantidade = document.getElementById('promo-quantidade');
     const promoPreco = document.getElementById('promo-preco');
@@ -382,7 +380,6 @@
     let promocoesCache = [];
     let todosProdutosCache = [];
 
-    // Carrinho salvo
     const savedCart = sessionStorage.getItem('carrinho');
     if (savedCart) {
       carrinho = JSON.parse(savedCart);
@@ -408,9 +405,7 @@
       try {
         const doc = await db.collection('admins').doc(uid).get();
         return doc.exists;
-      } catch (e) {
-        return false;
-      }
+      } catch (e) { return false; }
     }
 
     auth.onAuthStateChanged(async (user) => {
@@ -429,7 +424,7 @@
       }
     });
 
-    // Navegação
+    // Navigation
     btnVitrinePublica.addEventListener('click', () => {
       showVitrine('publico');
       carregarProdutos('publico');
@@ -498,12 +493,8 @@
       vitrineContainer.classList.remove('hidden');
     });
 
-    // Finalizar pedido
     btnFinalizar.addEventListener('click', () => {
-      if (carrinho.length === 0) {
-        alert('Carrinho vazio!');
-        return;
-      }
+      if (carrinho.length === 0) { alert('Carrinho vazio!'); return; }
       let texto = '🥬 Hortifruti Família\n\n🛒 *Pedido:*\n';
       let total = calcularTotalCarrinho();
       carrinho.forEach(item => {
@@ -519,7 +510,7 @@
       window.open(url, '_blank');
     });
 
-    // ========== FUNÇÕES DO CARRINHO ==========
+    // ========== CARRINHO ==========
     function abrirCarrinho() {
       carrinhoItens.innerHTML = '';
       if (carrinho.length === 0) {
@@ -593,17 +584,14 @@
     }
 
     function calcularTotalCarrinho() {
-      if (!isAdminUser && !auth.currentUser) { // apenas cliente comum (não logado) aplica promoção
+      // Aplica promoções apenas para cliente comum (não logado)
+      if (!isAdminUser && !auth.currentUser) {
         return calcularTotalComPromocoes();
       }
-      // Revenda ou admin: soma normal
-      return carrinho.reduce((s, i) => {
-        return s + (i.tipo === 'unidade' ? i.preco * i.quantidade : i.valor);
-      }, 0);
+      return carrinho.reduce((s, i) => s + (i.tipo === 'unidade' ? i.preco * i.quantidade : i.valor), 0);
     }
 
     function calcularTotalComPromocoes() {
-      // Agrupa itens do carrinho (tipo unidade) por ID de produto
       const mapa = {};
       carrinho.forEach(item => {
         if (item.tipo !== 'unidade') return;
@@ -612,9 +600,7 @@
       });
 
       let total = 0;
-      // Processa cada promoção
       promocoesCache.forEach(promo => {
-        // Pega todos os produtos do carrinho que estão nessa promoção
         const idsPromo = promo.produtosIds;
         let qtdTotalPromo = 0;
         let idsParaRemover = [];
@@ -628,8 +614,6 @@
           const grupos = Math.floor(qtdTotalPromo / promo.quantidadeMinima);
           const resto = qtdTotalPromo % promo.quantidadeMinima;
           total += grupos * promo.precoPromocional;
-          // Distribui o resto de volta proporcionalmente? Simplificamos: cobra o preço normal das unidades restantes
-          // Para isso, removemos as quantidades já processadas dos produtos
           let aProcessar = qtdTotalPromo - resto;
           for (let id of idsParaRemover) {
             if (aProcessar <= 0) break;
@@ -642,20 +626,16 @@
         }
       });
 
-      // Agora soma o restante (não promocional) com preço normal
       for (let id in mapa) {
         total += mapa[id].preco * mapa[id].quantidade;
       }
-
-      // Itens de valor são adicionados normalmente
       carrinho.forEach(item => {
         if (item.tipo === 'valor') total += item.valor;
       });
-
       return total;
     }
 
-    // ========== EXIBIÇÃO DA VITRINE ==========
+    // ========== VITRINE ==========
     function showVitrine(modo) {
       loginContainer.classList.add('hidden');
       adminContainer.classList.add('hidden');
@@ -788,12 +768,25 @@
 
         loadingEl.style.display = 'none';
         produtosGrid.innerHTML = '';
-        if (snapshotProdutos.empty) {
-          produtosGrid.innerHTML = '<p style="text-align:center;">Nenhum produto cadastrado ainda.</p>';
-          return;
-        }
+
+        const produtosFiltrados = [];
         snapshotProdutos.forEach(doc => {
           const data = doc.data();
+          // Filtra conforme o modo
+          if (modo === 'publico') {
+            if (!data.precoNormal || isNaN(parseFloat(data.precoNormal)) || parseFloat(data.precoNormal) <= 0) return;
+          } else if (modo === 'revenda') {
+            if (!data.precoRevenda || isNaN(parseFloat(data.precoRevenda)) || parseFloat(data.precoRevenda) <= 0) return;
+          }
+          produtosFiltrados.push({ id: doc.id, ...data });
+        });
+
+        if (produtosFiltrados.length === 0) {
+          produtosGrid.innerHTML = '<p style="text-align:center;">Nenhum produto disponível no momento.</p>';
+          return;
+        }
+
+        produtosFiltrados.forEach(data => {
           const card = document.createElement('div');
           card.className = 'card';
           card.appendChild(renderEmojiContainer(data.emoji, data.imagem));
@@ -802,15 +795,14 @@
           const descricao = data.descricao || '';
           let preco;
           if (modo === 'revenda') {
-            preco = data.precoRevenda ? parseFloat(data.precoRevenda) : 0;
+            preco = parseFloat(data.precoRevenda);
           } else {
-            preco = data.precoNormal ? parseFloat(data.precoNormal) : 0;
+            preco = parseFloat(data.precoNormal);
           }
-          const precoFormatado = preco ? `R$ ${preco.toFixed(2).replace('.', ',')}` : '—';
+          const precoFormatado = `R$ ${preco.toFixed(2).replace('.', ',')}`;
 
-          // Selo de promoção (apenas para público, não revenda)
           if (modo === 'publico') {
-            const estaEmPromocao = promocoesCache.some(p => p.produtosIds.includes(doc.id));
+            const estaEmPromocao = promocoesCache.some(p => p.produtosIds.includes(data.id));
             if (estaEmPromocao) {
               const selo = document.createElement('span');
               selo.className = 'promo-selo';
@@ -827,7 +819,7 @@
             <div class="preco">${precoFormatado}</div>
           `;
           card.appendChild(info);
-          const inputArea = criarInputArea({ id: doc.id, nome, descricao }, preco);
+          const inputArea = criarInputArea({ id: data.id, nome, descricao }, preco);
           card.appendChild(inputArea);
           produtosGrid.appendChild(card);
         });
@@ -837,7 +829,7 @@
       });
     }
 
-    // ========== ADMIN – PRODUTOS ==========
+    // ========== ADMIN PRODUTOS ==========
     function carregarAdminProdutos() {
       const tbody = document.querySelector('#admin-tabela tbody');
       tbody.innerHTML = '<tr><td colspan="6">Carregando...</td></tr>';
@@ -861,8 +853,8 @@
             <td>${imagemCelula}</td>
             <td>${data.nome || ''}</td>
             <td>${data.categoria || ''}</td>
-            <td>R$ ${data.precoNormal ? parseFloat(data.precoNormal).toFixed(2).replace('.', ',') : ''}</td>
-            <td>R$ ${data.precoRevenda ? parseFloat(data.precoRevenda).toFixed(2).replace('.', ',') : ''}</td>
+            <td>R$ ${data.precoNormal ? parseFloat(data.precoNormal).toFixed(2).replace('.', ',') : '—'}</td>
+            <td>R$ ${data.precoRevenda ? parseFloat(data.precoRevenda).toFixed(2).replace('.', ',') : '—'}</td>
             <td class="actions">
               <button class="editar" data-id="${id}">✏️</button>
               <button class="excluir" data-id="${id}">🗑️</button>
@@ -878,17 +870,30 @@
     async function handleSubmitProduto() {
       const nome = document.getElementById('prod-nome').value.trim();
       const categoria = document.getElementById('prod-categoria').value.trim();
-      const precoNormal = parseFloat(document.getElementById('prod-preco-normal').value);
-      const precoRevenda = parseFloat(document.getElementById('prod-preco-revenda').value);
       const emoji = document.getElementById('prod-emoji').value.trim();
       const imagem = document.getElementById('prod-imagem').value.trim();
       const descricao = document.getElementById('prod-descricao').value.trim();
 
-      if (!nome || isNaN(precoNormal) || isNaN(precoRevenda)) {
-        adminMsg.textContent = 'Preencha nome e preços corretamente.';
+      const precoNormalInput = document.getElementById('prod-preco-normal').value.trim();
+      const precoRevendaInput = document.getElementById('prod-preco-revenda').value.trim();
+      const precoNormal = precoNormalInput !== '' ? parseFloat(precoNormalInput) : NaN;
+      const precoRevenda = precoRevendaInput !== '' ? parseFloat(precoRevendaInput) : NaN;
+
+      if (!nome) {
+        adminMsg.textContent = 'Preencha ao menos o nome do produto.';
         return;
       }
-      const produtoData = { nome, categoria, precoNormal, precoRevenda, emoji, imagem, descricao };
+      if (isNaN(precoNormal) && isNaN(precoRevenda)) {
+        adminMsg.textContent = 'Informe pelo menos um dos preços (normal ou revenda).';
+        return;
+      }
+
+      const produtoData = { nome, categoria, emoji, imagem, descricao };
+      if (!isNaN(precoNormal)) produtoData.precoNormal = precoNormal;
+      else if (editingId) produtoData.precoNormal = firebase.firestore.FieldValue.delete();
+      if (!isNaN(precoRevenda)) produtoData.precoRevenda = precoRevenda;
+      else if (editingId) produtoData.precoRevenda = firebase.firestore.FieldValue.delete();
+
       try {
         if (editingId) {
           await db.collection('produtos').doc(editingId).update(produtoData);
@@ -951,9 +956,8 @@
       }
     }
 
-    // ========== ADMIN – PROMOÇÕES ==========
+    // ========== ADMIN PROMOÇÕES ==========
     async function carregarAdminPromocoes() {
-      // Atualiza checkboxes
       const snapProdutos = await db.collection('produtos').get();
       promoCheckboxes.innerHTML = '';
       snapProdutos.forEach(doc => {
@@ -963,7 +967,6 @@
         promoCheckboxes.appendChild(label);
       });
 
-      // Lista promoções
       const snapPromocoes = await db.collection('promocoes').get();
       listaPromocoes.innerHTML = '';
       promocoesCache = [];
@@ -1002,7 +1005,6 @@
           promoNome.value = data.nome;
           promoQuantidade.value = data.quantidadeMinima;
           promoPreco.value = data.precoPromocional;
-          // Marca checkboxes
           document.querySelectorAll('#promo-checkboxes input[type="checkbox"]').forEach(cb => {
             cb.checked = data.produtosIds.includes(cb.value);
           });
