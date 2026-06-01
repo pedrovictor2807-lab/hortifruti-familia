@@ -67,6 +67,21 @@
       right: -5px;
     }
     .container { max-width: 1000px; margin: 20px auto; padding: 0 20px; }
+    .filtros {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 15px;
+      flex-wrap: wrap;
+    }
+    .filtros input, .filtros select {
+      flex: 1;
+      min-width: 150px;
+      padding: 12px;
+      border: 1px solid #ccc;
+      border-radius: 10px;
+      font-size: 1rem;
+      background: white;
+    }
     .produtos-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -122,6 +137,21 @@
     .card .promo-selo {
       background: #ff9800;
       color: white;
+      padding: 4px 10px;
+      border-radius: 15px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      display: inline-block;
+      margin: 5px 0;
+    }
+    .card .promo-detalhe {
+      font-size: 0.8rem;
+      color: #e65100;
+      margin: 2px 0 5px;
+    }
+    .card .estoque-zerado-selo {
+      background: #ccc;
+      color: #333;
       padding: 4px 10px;
       border-radius: 15px;
       font-size: 0.8rem;
@@ -246,6 +276,7 @@
       align-items: center;
       gap: 4px;
     }
+    .estoque-destaque { background: #fff3e0; }
   </style>
 </head>
 <body>
@@ -264,6 +295,12 @@
 
   <div class="container">
     <div id="vitrine-container">
+      <div class="filtros">
+        <input type="text" id="campo-pesquisa" placeholder="🔍 Pesquisar produto...">
+        <select id="filtro-categoria">
+          <option value="">Todas as categorias</option>
+        </select>
+      </div>
       <div id="loading" style="text-align:center; margin:40px;">Carregando produtos...</div>
       <div id="produtos-grid" class="produtos-grid"></div>
     </div>
@@ -298,13 +335,16 @@
         <input type="text" id="prod-emoji" placeholder="Emoji (🍎🍌 etc.)">
         <input type="text" id="prod-imagem" placeholder="URL da imagem (opcional)">
         <textarea id="prod-descricao" placeholder="Descrição (opcional)" rows="2"></textarea>
+        <label style="display:flex; align-items:center; gap:8px; margin:8px 0;">
+          <input type="checkbox" id="prod-em-estoque" checked style="width:auto; margin:0;"> Produto em estoque
+        </label>
         <button id="btn-add-produto">Adicionar Produto</button>
         <p id="admin-msg" style="margin-top:10px;"></p>
       </div>
       <div>
         <h3>Lista de Produtos</h3>
         <table class="admin-table" id="admin-tabela">
-          <thead><tr><th>Imagem</th><th>Nome</th><th>Cat.</th><th>Normal</th><th>Revenda</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Imagem</th><th>Nome</th><th>Cat.</th><th>Normal</th><th>Revenda</th><th>Estoque</th><th>Ações</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -369,6 +409,9 @@
     const btnAddPromocao = document.getElementById('btn-add-promocao');
     const promoMsg = document.getElementById('promo-msg');
     const listaPromocoes = document.getElementById('lista-promocoes');
+    const campoPesquisa = document.getElementById('campo-pesquisa');
+    const filtroCategoria = document.getElementById('filtro-categoria');
+    const prodEmEstoque = document.getElementById('prod-em-estoque');
 
     const WHATSAPP_NUMERO = '5585981345379';
 
@@ -379,6 +422,7 @@
     let carrinho = [];
     let promocoesCache = [];
     let todosProdutosCache = [];
+    let categoriasSet = new Set();
 
     const savedCart = sessionStorage.getItem('carrinho');
     if (savedCart) {
@@ -424,7 +468,7 @@
       }
     });
 
-    // Navigation
+    // Navegação
     btnVitrinePublica.addEventListener('click', () => {
       showVitrine('publico');
       carregarProdutos('publico');
@@ -510,6 +554,14 @@
       window.open(url, '_blank');
     });
 
+    // Filtros
+    campoPesquisa.addEventListener('input', () => {
+      carregarProdutos(currentMode);
+    });
+    filtroCategoria.addEventListener('change', () => {
+      carregarProdutos(currentMode);
+    });
+
     // ========== CARRINHO ==========
     function abrirCarrinho() {
       carrinhoItens.innerHTML = '';
@@ -584,7 +636,6 @@
     }
 
     function calcularTotalCarrinho() {
-      // Aplica promoções apenas para cliente comum (não logado)
       if (!isAdminUser && !auth.currentUser) {
         return calcularTotalComPromocoes();
       }
@@ -766,23 +817,31 @@
         todosProdutosCache = [];
         snapshotProdutos.forEach(d => todosProdutosCache.push({ id: d.id, ...d.data() }));
 
+        // Atualizar categorias
+        categoriasSet.clear();
+        todosProdutosCache.forEach(p => { if (p.categoria) categoriasSet.add(p.categoria); });
+        filtroCategoria.innerHTML = '<option value="">Todas as categorias</option>';
+        [...categoriasSet].sort().forEach(cat => {
+          filtroCategoria.innerHTML += `<option value="${cat}">${cat}</option>`;
+        });
+
         loadingEl.style.display = 'none';
         produtosGrid.innerHTML = '';
 
-        const produtosFiltrados = [];
-        snapshotProdutos.forEach(doc => {
-          const data = doc.data();
-          // Filtra conforme o modo
-          if (modo === 'publico') {
-            if (!data.precoNormal || isNaN(parseFloat(data.precoNormal)) || parseFloat(data.precoNormal) <= 0) return;
-          } else if (modo === 'revenda') {
-            if (!data.precoRevenda || isNaN(parseFloat(data.precoRevenda)) || parseFloat(data.precoRevenda) <= 0) return;
-          }
-          produtosFiltrados.push({ id: doc.id, ...data });
+        const termo = campoPesquisa.value.trim().toLowerCase();
+        const catSel = filtroCategoria.value;
+
+        const produtosFiltrados = todosProdutosCache.filter(data => {
+          if (modo !== 'admin' && data.emEstoque === false) return false;
+          if (modo === 'publico' && (!data.precoNormal || parseFloat(data.precoNormal) <= 0)) return false;
+          if (modo === 'revenda' && (!data.precoRevenda || parseFloat(data.precoRevenda) <= 0)) return false;
+          if (termo && !data.nome.toLowerCase().includes(termo)) return false;
+          if (catSel && data.categoria !== catSel) return false;
+          return true;
         });
 
         if (produtosFiltrados.length === 0) {
-          produtosGrid.innerHTML = '<p style="text-align:center;">Nenhum produto disponível no momento.</p>';
+          produtosGrid.innerHTML = '<p style="text-align:center;">Nenhum produto encontrado.</p>';
           return;
         }
 
@@ -801,13 +860,18 @@
           }
           const precoFormatado = `R$ ${preco.toFixed(2).replace('.', ',')}`;
 
+          // Exibir detalhes da promoção (apenas para público)
           if (modo === 'publico') {
-            const estaEmPromocao = promocoesCache.some(p => p.produtosIds.includes(data.id));
-            if (estaEmPromocao) {
+            const promocao = promocoesCache.find(p => p.produtosIds.includes(data.id));
+            if (promocao) {
               const selo = document.createElement('span');
               selo.className = 'promo-selo';
-              selo.textContent = '🏷️ Promoção';
+              selo.textContent = `🏷️ ${promocao.nome}`;
               card.appendChild(selo);
+              const detalhe = document.createElement('div');
+              detalhe.className = 'promo-detalhe';
+              detalhe.textContent = `Leve ${promocao.quantidadeMinima} por R$ ${promocao.precoPromocional.toFixed(2).replace('.', ',')}`;
+              card.appendChild(detalhe);
             }
           }
 
@@ -832,17 +896,18 @@
     // ========== ADMIN PRODUTOS ==========
     function carregarAdminProdutos() {
       const tbody = document.querySelector('#admin-tabela tbody');
-      tbody.innerHTML = '<tr><td colspan="6">Carregando...</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="7">Carregando...</td></tr>';
       db.collection('produtos').get().then(snapshot => {
         tbody.innerHTML = '';
         if (snapshot.empty) {
-          tbody.innerHTML = '<tr><td colspan="6">Nenhum produto.</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7">Nenhum produto.</td></tr>';
           return;
         }
         snapshot.forEach(doc => {
           const data = doc.data();
           const id = doc.id;
           const tr = document.createElement('tr');
+          if (data.emEstoque === false) tr.classList.add('estoque-destaque');
           let imagemCelula;
           if (data.imagem && data.imagem.trim() !== '') {
             imagemCelula = `<img class="admin-img" src="${data.imagem}" alt="">`;
@@ -855,6 +920,7 @@
             <td>${data.categoria || ''}</td>
             <td>R$ ${data.precoNormal ? parseFloat(data.precoNormal).toFixed(2).replace('.', ',') : '—'}</td>
             <td>R$ ${data.precoRevenda ? parseFloat(data.precoRevenda).toFixed(2).replace('.', ',') : '—'}</td>
+            <td>${data.emEstoque !== false ? '✅' : '❌ Zerado'}</td>
             <td class="actions">
               <button class="editar" data-id="${id}">✏️</button>
               <button class="excluir" data-id="${id}">🗑️</button>
@@ -873,6 +939,7 @@
       const emoji = document.getElementById('prod-emoji').value.trim();
       const imagem = document.getElementById('prod-imagem').value.trim();
       const descricao = document.getElementById('prod-descricao').value.trim();
+      const emEstoque = prodEmEstoque.checked;
 
       const precoNormalInput = document.getElementById('prod-preco-normal').value.trim();
       const precoRevendaInput = document.getElementById('prod-preco-revenda').value.trim();
@@ -888,7 +955,7 @@
         return;
       }
 
-      const produtoData = { nome, categoria, emoji, imagem, descricao };
+      const produtoData = { nome, categoria, emoji, imagem, descricao, emEstoque };
       if (!isNaN(precoNormal)) produtoData.precoNormal = precoNormal;
       else if (editingId) produtoData.precoNormal = firebase.firestore.FieldValue.delete();
       if (!isNaN(precoRevenda)) produtoData.precoRevenda = precoRevenda;
@@ -920,6 +987,7 @@
       document.getElementById('prod-emoji').value = '';
       document.getElementById('prod-imagem').value = '';
       document.getElementById('prod-descricao').value = '';
+      prodEmEstoque.checked = true;
       editingId = null;
       btnAddProduto.textContent = 'Adicionar Produto';
     }
@@ -949,6 +1017,7 @@
         document.getElementById('prod-emoji').value = data.emoji || '';
         document.getElementById('prod-imagem').value = data.imagem || '';
         document.getElementById('prod-descricao').value = data.descricao || '';
+        prodEmEstoque.checked = data.emEstoque !== false;
         editingId = id;
         btnAddProduto.textContent = 'Atualizar Produto';
       } catch (err) {
