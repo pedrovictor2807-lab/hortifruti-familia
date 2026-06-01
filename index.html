@@ -119,35 +119,57 @@
       margin: 5px 0;
       line-height: 1.2;
     }
+    .card .promo-selo {
+      background: #ff9800;
+      color: white;
+      padding: 4px 10px;
+      border-radius: 15px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      display: inline-block;
+      margin: 5px 0;
+    }
     .card .input-area {
       display: flex;
       flex-direction: column;
-      gap: 5px;
+      gap: 10px;
       margin-top: auto;
     }
     .card .input-area input {
       width: 100%;
-      padding: 8px;
+      padding: 12px;
       border: 1px solid #ccc;
       border-radius: 10px;
       text-align: center;
+      font-size: 1rem;
     }
     .card .btn-add-carrinho {
       background: #4caf50;
       color: white;
       border: none;
-      padding: 8px 15px;
-      border-radius: 20px;
+      padding: 12px 15px;
+      border-radius: 30px;
       font-weight: 600;
       cursor: pointer;
+      font-size: 1rem;
+      transition: 0.2s;
     }
-    .card .modo-toggle {
-      font-size: 0.75rem;
-      color: #888;
+    .card .btn-add-carrinho:hover { background: #388e3c; }
+    .modo-toggle {
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      padding: 10px 12px;
+      border-radius: 20px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #e65100;
       cursor: pointer;
-      text-decoration: underline;
+      text-align: center;
+      transition: 0.2s;
+      margin: 0 5px;
     }
-    .login-box, .admin-panel, .carrinho-panel {
+    .modo-toggle:hover { background: #ffe0b2; }
+    .login-box, .admin-panel, .carrinho-panel, .promo-panel {
       background: white;
       padding: 25px;
       border-radius: 20px;
@@ -199,6 +221,31 @@
       margin-top: 15px;
       cursor: pointer;
     }
+    .carrinho-aviso {
+      background: #fff3e0;
+      border: 1px solid #ffcc80;
+      border-radius: 10px;
+      padding: 10px;
+      margin-bottom: 15px;
+      font-size: 0.85rem;
+      color: #e65100;
+      text-align: center;
+    }
+    .promo-checkboxes {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin: 10px 0;
+    }
+    .promo-checkboxes label {
+      background: #f5f5f5;
+      padding: 5px 10px;
+      border-radius: 15px;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
   </style>
 </head>
 <body>
@@ -232,6 +279,9 @@
 
     <div id="carrinho-container" class="carrinho-panel hidden">
       <h2>🛒 Seu Carrinho</h2>
+      <div class="carrinho-aviso">
+        ⚠️ Os valores são aproximados e podem variar conforme a disponibilidade dos produtos na banca no momento.
+      </div>
       <div id="carrinho-itens"></div>
       <p id="carrinho-total" style="font-weight:bold; margin-top:10px;">Total: R$ 0,00</p>
       <button id="btn-finalizar" class="btn-finalizar">📱 Finalizar pedido pelo WhatsApp</button>
@@ -257,6 +307,19 @@
           <thead><tr><th>Imagem</th><th>Nome</th><th>Cat.</th><th>Normal</th><th>Revenda</th><th>Ações</th></tr></thead>
           <tbody></tbody>
         </table>
+      </div>
+
+      <div class="promo-panel" style="margin-top:30px;">
+        <h2>Gerenciar Promoções</h2>
+        <input type="text" id="promo-nome" placeholder="Nome da promoção (ex: Leve 3 por R$5,00)">
+        <input type="number" id="promo-quantidade" placeholder="Quantidade mínima (ex: 3)" min="1">
+        <input type="number" id="promo-preco" placeholder="Preço promocional (R$)" step="0.01">
+        <p style="font-size:0.9rem; margin:5px 0;">Selecione os produtos participantes:</p>
+        <div id="promo-checkboxes" class="promo-checkboxes"></div>
+        <button id="btn-add-promocao">Adicionar Promoção</button>
+        <p id="promo-msg" style="margin-top:10px;"></p>
+        <h3 style="margin-top:20px;">Promoções ativas</h3>
+        <div id="lista-promocoes"></div>
       </div>
     </div>
   </div>
@@ -300,16 +363,26 @@
     const carrinhoTotal = document.getElementById('carrinho-total');
     const btnFinalizar = document.getElementById('btn-finalizar');
     const btnFecharCarrinho = document.getElementById('btn-fechar-carrinho');
-    const prodDescricao = document.getElementById('prod-descricao');
+    // Promoções
+    const promoNome = document.getElementById('promo-nome');
+    const promoQuantidade = document.getElementById('promo-quantidade');
+    const promoPreco = document.getElementById('promo-preco');
+    const promoCheckboxes = document.getElementById('promo-checkboxes');
+    const btnAddPromocao = document.getElementById('btn-add-promocao');
+    const promoMsg = document.getElementById('promo-msg');
+    const listaPromocoes = document.getElementById('lista-promocoes');
 
     const WHATSAPP_NUMERO = '5585981345379';
 
     let currentMode = 'publico';
     let editingId = null;
+    let editingPromoId = null;
     let isAdminUser = false;
     let carrinho = [];
+    let promocoesCache = [];
+    let todosProdutosCache = [];
 
-    // Recuperar carrinho salvo
+    // Carrinho salvo
     const savedCart = sessionStorage.getItem('carrinho');
     if (savedCart) {
       carrinho = JSON.parse(savedCart);
@@ -331,7 +404,6 @@
       }
     }
 
-    // Verificar admin
     async function checkAdmin(uid) {
       try {
         const doc = await db.collection('admins').doc(uid).get();
@@ -386,6 +458,7 @@
       if (!isAdminUser) return;
       showAdminPanel();
       carregarAdminProdutos();
+      carregarAdminPromocoes();
       setActiveNav('admin');
     });
 
@@ -407,6 +480,7 @@
         if (isAdminUser) {
           showAdminPanel();
           carregarAdminProdutos();
+          carregarAdminPromocoes();
           setActiveNav('admin');
         } else {
           showVitrine('revenda');
@@ -424,20 +498,18 @@
       vitrineContainer.classList.remove('hidden');
     });
 
+    // Finalizar pedido
     btnFinalizar.addEventListener('click', () => {
       if (carrinho.length === 0) {
         alert('Carrinho vazio!');
         return;
       }
       let texto = '🥬 Hortifruti Família\n\n🛒 *Pedido:*\n';
-      let total = 0;
+      let total = calcularTotalCarrinho();
       carrinho.forEach(item => {
         if (item.tipo === 'unidade') {
-          const subtotal = item.preco * item.quantidade;
-          total += subtotal;
-          texto += `- ${item.nome} (${item.quantidade}x) - R$ ${subtotal.toFixed(2).replace('.', ',')}\n`;
+          texto += `- ${item.nome} (${item.quantidade}x) - R$ ${(item.preco * item.quantidade).toFixed(2).replace('.', ',')}\n`;
         } else {
-          total += item.valor;
           texto += `- ${item.nome} - R$ ${item.valor.toFixed(2).replace('.', ',')} (valor)\n`;
         }
         if (item.descricao) texto += `  _${item.descricao}_\n`;
@@ -447,6 +519,7 @@
       window.open(url, '_blank');
     });
 
+    // ========== FUNÇÕES DO CARRINHO ==========
     function abrirCarrinho() {
       carrinhoItens.innerHTML = '';
       if (carrinho.length === 0) {
@@ -482,7 +555,6 @@
           carrinhoItens.appendChild(div);
         });
 
-        // Eventos para unidades
         document.querySelectorAll('.diminuir').forEach(btn => {
           btn.addEventListener('click', (e) => {
             const i = e.target.dataset.index;
@@ -503,7 +575,6 @@
             abrirCarrinho();
           });
         });
-        // Eventos para itens de valor (remover)
         document.querySelectorAll('.remover-item').forEach(btn => {
           btn.addEventListener('click', (e) => {
             const i = e.target.dataset.index;
@@ -513,10 +584,7 @@
           });
         });
       }
-
-      const total = carrinho.reduce((s, i) => {
-        return s + (i.tipo === 'unidade' ? i.preco * i.quantidade : i.valor);
-      }, 0);
+      const total = calcularTotalCarrinho();
       carrinhoTotal.textContent = `Total: R$ ${total.toFixed(2).replace('.', ',')}`;
       vitrineContainer.classList.add('hidden');
       adminContainer.classList.add('hidden');
@@ -524,6 +592,70 @@
       carrinhoContainer.classList.remove('hidden');
     }
 
+    function calcularTotalCarrinho() {
+      if (!isAdminUser && !auth.currentUser) { // apenas cliente comum (não logado) aplica promoção
+        return calcularTotalComPromocoes();
+      }
+      // Revenda ou admin: soma normal
+      return carrinho.reduce((s, i) => {
+        return s + (i.tipo === 'unidade' ? i.preco * i.quantidade : i.valor);
+      }, 0);
+    }
+
+    function calcularTotalComPromocoes() {
+      // Agrupa itens do carrinho (tipo unidade) por ID de produto
+      const mapa = {};
+      carrinho.forEach(item => {
+        if (item.tipo !== 'unidade') return;
+        if (!mapa[item.id]) mapa[item.id] = { ...item, quantidade: 0 };
+        mapa[item.id].quantidade += item.quantidade;
+      });
+
+      let total = 0;
+      // Processa cada promoção
+      promocoesCache.forEach(promo => {
+        // Pega todos os produtos do carrinho que estão nessa promoção
+        const idsPromo = promo.produtosIds;
+        let qtdTotalPromo = 0;
+        let idsParaRemover = [];
+        for (let id in mapa) {
+          if (idsPromo.includes(id)) {
+            qtdTotalPromo += mapa[id].quantidade;
+            idsParaRemover.push(id);
+          }
+        }
+        if (qtdTotalPromo > 0) {
+          const grupos = Math.floor(qtdTotalPromo / promo.quantidadeMinima);
+          const resto = qtdTotalPromo % promo.quantidadeMinima;
+          total += grupos * promo.precoPromocional;
+          // Distribui o resto de volta proporcionalmente? Simplificamos: cobra o preço normal das unidades restantes
+          // Para isso, removemos as quantidades já processadas dos produtos
+          let aProcessar = qtdTotalPromo - resto;
+          for (let id of idsParaRemover) {
+            if (aProcessar <= 0) break;
+            const item = mapa[id];
+            const usado = Math.min(item.quantidade, aProcessar);
+            item.quantidade -= usado;
+            aProcessar -= usado;
+            if (item.quantidade === 0) delete mapa[id];
+          }
+        }
+      });
+
+      // Agora soma o restante (não promocional) com preço normal
+      for (let id in mapa) {
+        total += mapa[id].preco * mapa[id].quantidade;
+      }
+
+      // Itens de valor são adicionados normalmente
+      carrinho.forEach(item => {
+        if (item.tipo === 'valor') total += item.valor;
+      });
+
+      return total;
+    }
+
+    // ========== EXIBIÇÃO DA VITRINE ==========
     function showVitrine(modo) {
       loginContainer.classList.add('hidden');
       adminContainer.classList.add('hidden');
@@ -566,29 +698,26 @@
       return container;
     }
 
-    // Função para gerar a área de input e botão de cada card
     function criarInputArea(produto, preco) {
       const area = document.createElement('div');
       area.className = 'input-area';
-
       const input = document.createElement('input');
       input.type = 'number';
       input.step = '0.01';
       input.min = '0.01';
       input.value = '1';
       input.placeholder = 'Quantidade';
-
-      const toggleBtn = document.createElement('span');
+      const toggleBtn = document.createElement('button');
       toggleBtn.className = 'modo-toggle';
-      toggleBtn.textContent = '🔄 Comprar por valor';
-
+      toggleBtn.textContent = '🔄 Comprar por valor (R$)';
+      toggleBtn.type = 'button';
       const addBtn = document.createElement('button');
       addBtn.className = 'btn-add-carrinho';
       addBtn.textContent = '🛒 Adicionar';
-
+      addBtn.type = 'button';
       let modoUnidade = true;
-
-      toggleBtn.addEventListener('click', () => {
+      toggleBtn.addEventListener('click', (e) => {
+        e.preventDefault();
         modoUnidade = !modoUnidade;
         if (modoUnidade) {
           input.type = 'number';
@@ -596,7 +725,7 @@
           input.min = '1';
           input.value = '1';
           input.placeholder = 'Quantidade';
-          toggleBtn.textContent = '🔄 Comprar por valor';
+          toggleBtn.textContent = '🔄 Comprar por valor (R$)';
           addBtn.textContent = '🛒 Adicionar';
         } else {
           input.type = 'number';
@@ -608,7 +737,6 @@
           addBtn.textContent = '🛒 Adicionar valor';
         }
       });
-
       addBtn.addEventListener('click', () => {
         const valor = parseFloat(input.value);
         if (isNaN(valor) || valor <= 0) {
@@ -616,7 +744,6 @@
           return;
         }
         if (modoUnidade) {
-          // Unidade
           const existente = carrinho.find(i => i.id === produto.id && i.tipo === 'unidade');
           if (existente) {
             existente.quantidade += Math.floor(valor);
@@ -631,7 +758,6 @@
             });
           }
         } else {
-          // Valor em reais – pode ter múltiplas entradas, então sempre adiciona novo
           carrinho.push({
             id: produto.id,
             nome: produto.nome,
@@ -644,7 +770,6 @@
         alert(`${produto.nome} adicionado ao carrinho!`);
         input.value = modoUnidade ? '1' : '';
       });
-
       area.appendChild(input);
       area.appendChild(toggleBtn);
       area.appendChild(addBtn);
@@ -652,14 +777,22 @@
     }
 
     function carregarProdutos(modo) {
-      db.collection('produtos').get().then(snapshot => {
+      Promise.all([
+        db.collection('produtos').get(),
+        db.collection('promocoes').get()
+      ]).then(([snapshotProdutos, snapshotPromocoes]) => {
+        promocoesCache = [];
+        snapshotPromocoes.forEach(d => promocoesCache.push({ id: d.id, ...d.data() }));
+        todosProdutosCache = [];
+        snapshotProdutos.forEach(d => todosProdutosCache.push({ id: d.id, ...d.data() }));
+
         loadingEl.style.display = 'none';
         produtosGrid.innerHTML = '';
-        if (snapshot.empty) {
+        if (snapshotProdutos.empty) {
           produtosGrid.innerHTML = '<p style="text-align:center;">Nenhum produto cadastrado ainda.</p>';
           return;
         }
-        snapshot.forEach(doc => {
+        snapshotProdutos.forEach(doc => {
           const data = doc.data();
           const card = document.createElement('div');
           card.className = 'card';
@@ -674,6 +807,18 @@
             preco = data.precoNormal ? parseFloat(data.precoNormal) : 0;
           }
           const precoFormatado = preco ? `R$ ${preco.toFixed(2).replace('.', ',')}` : '—';
+
+          // Selo de promoção (apenas para público, não revenda)
+          if (modo === 'publico') {
+            const estaEmPromocao = promocoesCache.some(p => p.produtosIds.includes(doc.id));
+            if (estaEmPromocao) {
+              const selo = document.createElement('span');
+              selo.className = 'promo-selo';
+              selo.textContent = '🏷️ Promoção';
+              card.appendChild(selo);
+            }
+          }
+
           const info = document.createElement('div');
           info.innerHTML = `
             <h3>${nome}</h3>
@@ -682,8 +827,6 @@
             <div class="preco">${precoFormatado}</div>
           `;
           card.appendChild(info);
-
-          // Área de input e botão
           const inputArea = criarInputArea({ id: doc.id, nome, descricao }, preco);
           card.appendChild(inputArea);
           produtosGrid.appendChild(card);
@@ -694,7 +837,7 @@
       });
     }
 
-    // Admin: listar produtos
+    // ========== ADMIN – PRODUTOS ==========
     function carregarAdminProdutos() {
       const tbody = document.querySelector('#admin-tabela tbody');
       tbody.innerHTML = '<tr><td colspan="6">Carregando...</td></tr>';
@@ -727,12 +870,8 @@
           `;
           tbody.appendChild(tr);
         });
-        document.querySelectorAll('.excluir').forEach(btn => {
-          btn.addEventListener('click', excluirProduto);
-        });
-        document.querySelectorAll('.editar').forEach(btn => {
-          btn.addEventListener('click', prepararEdicao);
-        });
+        document.querySelectorAll('.excluir').forEach(btn => btn.addEventListener('click', excluirProduto));
+        document.querySelectorAll('.editar').forEach(btn => btn.addEventListener('click', prepararEdicao));
       });
     }
 
@@ -749,9 +888,7 @@
         adminMsg.textContent = 'Preencha nome e preços corretamente.';
         return;
       }
-
       const produtoData = { nome, categoria, precoNormal, precoRevenda, emoji, imagem, descricao };
-
       try {
         if (editingId) {
           await db.collection('produtos').doc(editingId).update(produtoData);
@@ -762,6 +899,7 @@
         }
         resetFormulario();
         carregarAdminProdutos();
+        carregarAdminPromocoes();
       } catch (err) {
         adminMsg.textContent = 'Erro: ' + err.message;
       }
@@ -787,6 +925,7 @@
       try {
         await db.collection('produtos').doc(id).delete();
         carregarAdminProdutos();
+        carregarAdminPromocoes();
       } catch (err) {
         alert('Erro ao excluir: ' + err.message);
       }
@@ -812,6 +951,103 @@
       }
     }
 
+    // ========== ADMIN – PROMOÇÕES ==========
+    async function carregarAdminPromocoes() {
+      // Atualiza checkboxes
+      const snapProdutos = await db.collection('produtos').get();
+      promoCheckboxes.innerHTML = '';
+      snapProdutos.forEach(doc => {
+        const data = doc.data();
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" value="${doc.id}"> ${data.nome || 'Sem nome'}`;
+        promoCheckboxes.appendChild(label);
+      });
+
+      // Lista promoções
+      const snapPromocoes = await db.collection('promocoes').get();
+      listaPromocoes.innerHTML = '';
+      promocoesCache = [];
+      snapPromocoes.forEach(doc => {
+        promocoesCache.push({ id: doc.id, ...doc.data() });
+        const p = doc.data();
+        const div = document.createElement('div');
+        div.style.borderBottom = '1px solid #ccc';
+        div.style.padding = '8px 0';
+        div.innerHTML = `
+          <strong>${p.nome}</strong> (${p.quantidadeMinima} un. por R$ ${p.precoPromocional.toFixed(2)})<br>
+          <small>Produtos: ${p.produtosIds.map(id => {
+            const prod = todosProdutosCache.find(pr => pr.id === id);
+            return prod ? prod.nome : id;
+          }).join(', ')}</small>
+          <button class="editar-promo" data-id="${doc.id}">✏️</button>
+          <button class="excluir-promo" data-id="${doc.id}">🗑️</button>
+        `;
+        listaPromocoes.appendChild(div);
+      });
+
+      document.querySelectorAll('.excluir-promo').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.target.dataset.id;
+          if (!confirm('Excluir promoção?')) return;
+          await db.collection('promocoes').doc(id).delete();
+          carregarAdminPromocoes();
+        });
+      });
+      document.querySelectorAll('.editar-promo').forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const id = e.target.dataset.id;
+          const doc = await db.collection('promocoes').doc(id).get();
+          if (!doc.exists) return;
+          const data = doc.data();
+          promoNome.value = data.nome;
+          promoQuantidade.value = data.quantidadeMinima;
+          promoPreco.value = data.precoPromocional;
+          // Marca checkboxes
+          document.querySelectorAll('#promo-checkboxes input[type="checkbox"]').forEach(cb => {
+            cb.checked = data.produtosIds.includes(cb.value);
+          });
+          editingPromoId = id;
+          btnAddPromocao.textContent = 'Atualizar Promoção';
+        });
+      });
+    }
+
+    btnAddPromocao.addEventListener('click', async () => {
+      const nome = promoNome.value.trim();
+      const quantidadeMinima = parseInt(promoQuantidade.value);
+      const precoPromocional = parseFloat(promoPreco.value);
+      if (!nome || isNaN(quantidadeMinima) || isNaN(precoPromocional) || quantidadeMinima < 1) {
+        promoMsg.textContent = 'Preencha todos os campos corretamente.';
+        return;
+      }
+      const checkboxes = document.querySelectorAll('#promo-checkboxes input[type="checkbox"]:checked');
+      const produtosIds = Array.from(checkboxes).map(cb => cb.value);
+      if (produtosIds.length === 0) {
+        promoMsg.textContent = 'Selecione ao menos um produto.';
+        return;
+      }
+      const promoData = { nome, quantidadeMinima, precoPromocional, produtosIds };
+      try {
+        if (editingPromoId) {
+          await db.collection('promocoes').doc(editingPromoId).update(promoData);
+          promoMsg.textContent = 'Promoção atualizada!';
+        } else {
+          await db.collection('promocoes').add(promoData);
+          promoMsg.textContent = 'Promoção adicionada!';
+        }
+        promoNome.value = '';
+        promoQuantidade.value = '';
+        promoPreco.value = '';
+        document.querySelectorAll('#promo-checkboxes input[type="checkbox"]').forEach(cb => cb.checked = false);
+        editingPromoId = null;
+        btnAddPromocao.textContent = 'Adicionar Promoção';
+        carregarAdminPromocoes();
+      } catch (err) {
+        promoMsg.textContent = 'Erro: ' + err.message;
+      }
+    });
+
+    // Inicia
     carregarProdutos('publico');
     setActiveNav('publico');
   </script>
