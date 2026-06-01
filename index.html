@@ -71,9 +71,24 @@
       transition: transform 0.2s;
     }
     .card:hover { transform: translateY(-5px); }
-    .card .emoji {
-      font-size: 3.5rem;
-      margin-bottom: 8px;
+    .card .emoji-container {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      margin: 0 auto 10px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #f0f7ea;
+    }
+    .card .emoji-container .emoji {
+      font-size: 2.8rem;
+    }
+    .card .emoji-container img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
     }
     .card h3 {
       font-size: 1.1rem;
@@ -117,6 +132,12 @@
       padding: 10px;
       border-bottom: 1px solid #ddd;
       text-align: left;
+    }
+    .admin-table .admin-img {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
     }
     .actions button { margin: 0 3px; font-size: 0.8rem; padding: 5px 10px; }
     footer {
@@ -171,7 +192,7 @@
       <div>
         <h3>Lista de Produtos</h3>
         <table class="admin-table" id="admin-tabela">
-          <thead><tr><th>Emoji</th><th>Nome</th><th>Cat.</th><th>Normal</th><th>Revenda</th><th>Ações</th></tr></thead>
+          <thead><tr><th>Imagem</th><th>Nome</th><th>Cat.</th><th>Normal</th><th>Revenda</th><th>Ações</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -181,7 +202,6 @@
   <footer>Hortifruti Família © 2026 | Alimentos frescos todos os dias</footer>
 
   <script>
-    // ✅ SEUS DADOS ATUALIZADOS
     const firebaseConfig = {
       apiKey: "AIzaSyBASbbVZ_AwJ05eULz0-mDF8FmdxqAolHY",
       authDomain: "hortifruti-familia.firebaseapp.com",
@@ -206,8 +226,11 @@
     const btnLogout = document.getElementById('btn-logout');
     const btnLogin = document.getElementById('btn-login');
     const loginError = document.getElementById('login-error');
+    const btnAddProduto = document.getElementById('btn-add-produto');
+    const adminMsg = document.getElementById('admin-msg');
 
     let currentMode = 'publico';
+    let editingId = null;
 
     async function isAdmin(uid) {
       try {
@@ -318,6 +341,23 @@
       if (modo === 'admin') btnAdminNav.classList.add('active-btn');
     }
 
+    function renderEmojiContainer(emoji, imagem) {
+      const container = document.createElement('div');
+      container.className = 'emoji-container';
+      if (imagem && imagem.trim() !== '') {
+        const img = document.createElement('img');
+        img.src = imagem;
+        img.alt = '';
+        container.appendChild(img);
+      } else {
+        const span = document.createElement('span');
+        span.className = 'emoji';
+        span.textContent = emoji || '🥬';
+        container.appendChild(span);
+      }
+      return container;
+    }
+
     function carregarProdutos(modo) {
       db.collection('produtos').get().then(snapshot => {
         loadingEl.style.display = 'none';
@@ -330,7 +370,7 @@
           const data = doc.data();
           const card = document.createElement('div');
           card.className = 'card';
-          const emoji = data.emoji || '🥬';
+          card.appendChild(renderEmojiContainer(data.emoji, data.imagem));
           const nome = data.nome || 'Sem nome';
           const categoria = data.categoria || '';
           let preco;
@@ -339,12 +379,9 @@
           } else {
             preco = data.precoNormal ? `R$ ${parseFloat(data.precoNormal).toFixed(2).replace('.', ',')}` : '—';
           }
-          card.innerHTML = `
-            <div class="emoji">${emoji}</div>
-            <h3>${nome}</h3>
-            <div class="categoria">${categoria}</div>
-            <div class="preco">${preco}</div>
-          `;
+          const info = document.createElement('div');
+          info.innerHTML = `<h3>${nome}</h3><div class="categoria">${categoria}</div><div class="preco">${preco}</div>`;
+          card.appendChild(info);
           produtosGrid.appendChild(card);
         });
       }).catch(err => {
@@ -366,8 +403,14 @@
           const data = doc.data();
           const id = doc.id;
           const tr = document.createElement('tr');
+          let imagemCelula;
+          if (data.imagem && data.imagem.trim() !== '') {
+            imagemCelula = `<img class="admin-img" src="${data.imagem}" alt="">`;
+          } else {
+            imagemCelula = `<span style="font-size:1.8rem;">${data.emoji || '🥬'}</span>`;
+          }
           tr.innerHTML = `
-            <td>${data.emoji || ''}</td>
+            <td>${imagemCelula}</td>
             <td>${data.nome || ''}</td>
             <td>${data.categoria || ''}</td>
             <td>R$ ${data.precoNormal ? parseFloat(data.precoNormal).toFixed(2).replace('.', ',') : ''}</td>
@@ -388,7 +431,8 @@
       });
     }
 
-    document.getElementById('btn-add-produto').addEventListener('click', async () => {
+    // Função que decide se adiciona ou atualiza
+    async function handleSubmitProduto() {
       const nome = document.getElementById('prod-nome').value.trim();
       const categoria = document.getElementById('prod-categoria').value.trim();
       const precoNormal = parseFloat(document.getElementById('prod-preco-normal').value);
@@ -397,28 +441,40 @@
       const imagem = document.getElementById('prod-imagem').value.trim();
 
       if (!nome || isNaN(precoNormal) || isNaN(precoRevenda)) {
-        document.getElementById('admin-msg').textContent = 'Preencha nome e preços corretamente.';
+        adminMsg.textContent = 'Preencha nome e preços corretamente.';
         return;
       }
+
+      const produtoData = { nome, categoria, precoNormal, precoRevenda, emoji, imagem };
+
       try {
-        await db.collection('produtos').add({
-          nome, categoria, precoNormal, precoRevenda, emoji, imagem
-        });
-        document.getElementById('admin-msg').textContent = 'Produto adicionado!';
-        limparFormAdmin();
+        if (editingId) {
+          // Atualizar
+          await db.collection('produtos').doc(editingId).update(produtoData);
+          adminMsg.textContent = 'Produto atualizado!';
+        } else {
+          // Adicionar
+          await db.collection('produtos').add(produtoData);
+          adminMsg.textContent = 'Produto adicionado!';
+        }
+        resetFormulario();
         carregarAdminProdutos();
       } catch (err) {
-        document.getElementById('admin-msg').textContent = 'Erro: ' + err.message;
+        adminMsg.textContent = 'Erro: ' + err.message;
       }
-    });
+    }
 
-    function limparFormAdmin() {
+    btnAddProduto.addEventListener('click', handleSubmitProduto);
+
+    function resetFormulario() {
       document.getElementById('prod-nome').value = '';
       document.getElementById('prod-categoria').value = '';
       document.getElementById('prod-preco-normal').value = '';
       document.getElementById('prod-preco-revenda').value = '';
       document.getElementById('prod-emoji').value = '';
       document.getElementById('prod-imagem').value = '';
+      editingId = null;
+      btnAddProduto.textContent = 'Adicionar Produto';
     }
 
     async function excluirProduto(e) {
@@ -444,44 +500,10 @@
         document.getElementById('prod-preco-revenda').value = data.precoRevenda || '';
         document.getElementById('prod-emoji').value = data.emoji || '';
         document.getElementById('prod-imagem').value = data.imagem || '';
-        const addBtn = document.getElementById('btn-add-produto');
-        addBtn.textContent = 'Atualizar Produto';
-        addBtn.dataset.editId = id;
-        addBtn.removeEventListener('click', adicionarProdutoHandler);
-        addBtn.addEventListener('click', atualizarProdutoHandler);
+        editingId = id;
+        btnAddProduto.textContent = 'Atualizar Produto';
       } catch (err) {
         alert('Erro ao buscar produto: ' + err.message);
-      }
-    }
-
-    const adicionarProdutoHandler = async function() { };
-
-    async function atualizarProdutoHandler(e) {
-      const id = e.target.dataset.editId;
-      const nome = document.getElementById('prod-nome').value.trim();
-      const categoria = document.getElementById('prod-categoria').value.trim();
-      const precoNormal = parseFloat(document.getElementById('prod-preco-normal').value);
-      const precoRevenda = parseFloat(document.getElementById('prod-preco-revenda').value);
-      const emoji = document.getElementById('prod-emoji').value.trim();
-      const imagem = document.getElementById('prod-imagem').value.trim();
-      if (!nome || isNaN(precoNormal) || isNaN(precoRevenda)) {
-        document.getElementById('admin-msg').textContent = 'Preencha nome e preços corretamente.';
-        return;
-      }
-      try {
-        await db.collection('produtos').doc(id).update({
-          nome, categoria, precoNormal, precoRevenda, emoji, imagem
-        });
-        document.getElementById('admin-msg').textContent = 'Produto atualizado!';
-        limparFormAdmin();
-        const addBtn = document.getElementById('btn-add-produto');
-        addBtn.textContent = 'Adicionar Produto';
-        delete addBtn.dataset.editId;
-        addBtn.removeEventListener('click', atualizarProdutoHandler);
-        addBtn.addEventListener('click', adicionarProdutoHandler);
-        carregarAdminProdutos();
-      } catch (err) {
-        document.getElementById('admin-msg').textContent = 'Erro: ' + err.message;
       }
     }
 
