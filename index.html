@@ -424,6 +424,7 @@
     let todosProdutosCache = [];
     let categoriasSet = new Set();
 
+    // Carrinho salvo
     const savedCart = sessionStorage.getItem('carrinho');
     if (savedCart) {
       carrinho = JSON.parse(savedCart);
@@ -442,6 +443,19 @@
         carrinhoContador.textContent = totalItens;
       } else {
         carrinhoContador.style.display = 'none';
+      }
+    }
+
+    // Função para carregar promoções (usada em vários lugares)
+    async function carregarPromocoes() {
+      try {
+        const snap = await db.collection('promocoes').get();
+        promocoesCache = [];
+        snap.forEach(d => promocoesCache.push({ id: d.id, ...d.data() }));
+        console.log('Promoções carregadas:', promocoesCache.length);
+      } catch (e) {
+        console.error('Erro ao carregar promoções:', e);
+        promocoesCache = [];
       }
     }
 
@@ -531,7 +545,14 @@
       }
     });
 
-    btnCarrinho.addEventListener('click', () => abrirCarrinho());
+    btnCarrinho.addEventListener('click', async () => {
+      // Garante que as promoções estão carregadas antes de abrir o carrinho
+      if (promocoesCache.length === 0) {
+        await carregarPromocoes();
+      }
+      abrirCarrinho();
+    });
+
     btnFecharCarrinho.addEventListener('click', () => {
       carrinhoContainer.classList.add('hidden');
       vitrineContainer.classList.remove('hidden');
@@ -636,6 +657,7 @@
     }
 
     function calcularTotalCarrinho() {
+      // Aplica promoções apenas para cliente comum (não logado)
       if (!isAdminUser && !auth.currentUser) {
         return calcularTotalComPromocoes();
       }
@@ -643,46 +665,63 @@
     }
 
     function calcularTotalComPromocoes() {
+      if (promocoesCache.length === 0) {
+        // Se não há promoções, calcula normal
+        return carrinho.reduce((s, i) => s + (i.tipo === 'unidade' ? i.preco * i.quantidade : i.valor), 0);
+      }
+      // Cria um mapa de itens do carrinho (apenas unidades)
       const mapa = {};
       carrinho.forEach(item => {
         if (item.tipo !== 'unidade') return;
-        if (!mapa[item.id]) mapa[item.id] = { ...item, quantidade: 0 };
+        if (!mapa[item.id]) {
+          mapa[item.id] = { preco: item.preco, quantidade: 0 };
+        }
         mapa[item.id].quantidade += item.quantidade;
       });
 
       let total = 0;
+
       promocoesCache.forEach(promo => {
         const idsPromo = promo.produtosIds;
         let qtdTotalPromo = 0;
-        let idsParaRemover = [];
+        const idsEnvolvidos = [];
+
         for (let id in mapa) {
           if (idsPromo.includes(id)) {
             qtdTotalPromo += mapa[id].quantidade;
-            idsParaRemover.push(id);
+            idsEnvolvidos.push(id);
           }
         }
-        if (qtdTotalPromo > 0) {
+
+        if (qtdTotalPromo >= promo.quantidadeMinima) {
           const grupos = Math.floor(qtdTotalPromo / promo.quantidadeMinima);
-          const resto = qtdTotalPromo % promo.quantidadeMinima;
+          const itensPorGrupo = promo.quantidadeMinima;
           total += grupos * promo.precoPromocional;
-          let aProcessar = qtdTotalPromo - resto;
-          for (let id of idsParaRemover) {
-            if (aProcessar <= 0) break;
+
+          // Remove do mapa as quantidades utilizadas nos grupos
+          let restanteParaRemover = grupos * itensPorGrupo;
+          for (let id of idsEnvolvidos) {
+            if (restanteParaRemover <= 0) break;
             const item = mapa[id];
-            const usado = Math.min(item.quantidade, aProcessar);
-            item.quantidade -= usado;
-            aProcessar -= usado;
+            const remover = Math.min(item.quantidade, restanteParaRemover);
+            item.quantidade -= remover;
+            restanteParaRemover -= remover;
             if (item.quantidade === 0) delete mapa[id];
           }
         }
+        // Se não atingiu a quantidade mínima, não faz nada e esses itens permanecem no mapa
       });
 
+      // Soma os itens que sobraram (não promocionais)
       for (let id in mapa) {
         total += mapa[id].preco * mapa[id].quantidade;
       }
+
+      // Itens de valor são adicionados integralmente
       carrinho.forEach(item => {
         if (item.tipo === 'valor') total += item.valor;
       });
+
       return total;
     }
 
@@ -810,10 +849,8 @@
     function carregarProdutos(modo) {
       Promise.all([
         db.collection('produtos').get(),
-        db.collection('promocoes').get()
-      ]).then(([snapshotProdutos, snapshotPromocoes]) => {
-        promocoesCache = [];
-        snapshotPromocoes.forEach(d => promocoesCache.push({ id: d.id, ...d.data() }));
+        carregarPromocoes()
+      ]).then(([snapshotProdutos]) => {
         todosProdutosCache = [];
         snapshotProdutos.forEach(d => todosProdutosCache.push({ id: d.id, ...d.data() }));
 
@@ -1027,6 +1064,7 @@
 
     // ========== ADMIN PROMOÇÕES ==========
     async function carregarAdminPromocoes() {
+      await carregarPromocoes(); // Recarrega o cache
       const snapProdutos = await db.collection('produtos').get();
       promoCheckboxes.innerHTML = '';
       snapProdutos.forEach(doc => {
@@ -1036,12 +1074,8 @@
         promoCheckboxes.appendChild(label);
       });
 
-      const snapPromocoes = await db.collection('promocoes').get();
       listaPromocoes.innerHTML = '';
-      promocoesCache = [];
-      snapPromocoes.forEach(doc => {
-        promocoesCache.push({ id: doc.id, ...doc.data() });
-        const p = doc.data();
+      promocoesCache.forEach(p => {
         const div = document.createElement('div');
         div.style.borderBottom = '1px solid #ccc';
         div.style.padding = '8px 0';
@@ -1051,8 +1085,8 @@
             const prod = todosProdutosCache.find(pr => pr.id === id);
             return prod ? prod.nome : id;
           }).join(', ')}</small>
-          <button class="editar-promo" data-id="${doc.id}">✏️</button>
-          <button class="excluir-promo" data-id="${doc.id}">🗑️</button>
+          <button class="editar-promo" data-id="${p.id}">✏️</button>
+          <button class="excluir-promo" data-id="${p.id}">🗑️</button>
         `;
         listaPromocoes.appendChild(div);
       });
@@ -1119,8 +1153,10 @@
     });
 
     // Inicia
-    carregarProdutos('publico');
-    setActiveNav('publico');
+    carregarPromocoes().then(() => {
+      carregarProdutos('publico');
+      setActiveNav('publico');
+    });
   </script>
 </body>
 </html>
