@@ -212,6 +212,10 @@
     };
 
     firebase.initializeApp(firebaseConfig);
+
+    // Persistência LOCAL: o login dura até clicar em "Sair"
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+
     const auth = firebase.auth();
     const db = firebase.firestore();
 
@@ -247,36 +251,42 @@
         btnLogout.classList.remove('hidden');
         if (admin) {
           btnAdminNav.style.display = 'inline-block';
-          currentMode = 'admin';
-          showAdminPanel();
-          carregarAdminProdutos();
+          if (currentMode === 'publico' || currentMode === 'revenda') {
+            // Já que o admin logou, vai direto para o painel
+            showAdminPanel();
+            carregarAdminProdutos();
+            currentMode = 'admin';
+          }
         } else {
           btnAdminNav.style.display = 'none';
-          currentMode = 'revenda';
-          loginContainer.classList.add('hidden');
-          showVitrine('revenda');
-          carregarProdutos('revenda');
+          if (currentMode === 'publico') {
+            // Se estava na vitrine pública, mantém mas carrega preços de revenda
+            // Não mudamos automaticamente para não atrapalhar
+          } else {
+            showVitrine('revenda');
+            carregarProdutos('revenda');
+            currentMode = 'revenda';
+          }
         }
       } else {
         btnAdminNav.style.display = 'none';
         btnLogout.classList.add('hidden');
-        currentMode = 'publico';
-        loginContainer.classList.add('hidden');
-        showVitrine('publico');
-        carregarProdutos('publico');
+        if (currentMode !== 'publico') {
+          showVitrine('publico');
+          carregarProdutos('publico');
+          currentMode = 'publico';
+        }
       }
       setActiveNav(currentMode);
     });
 
+    // CORREÇÃO: botão "Produtos (normal)" NÃO desloga ninguém
     btnVitrinePublica.addEventListener('click', () => {
-      if (auth.currentUser) {
-        auth.signOut();
-      } else {
-        currentMode = 'publico';
-        showVitrine('publico');
-        carregarProdutos('publico');
-        setActiveNav('publico');
-      }
+      showVitrine('publico');
+      carregarProdutos('publico');
+      currentMode = 'publico';
+      setActiveNav('publico');
+      // A sessão permanece ativa; usuário logado continua logado
     });
 
     btnAreaRevenda.addEventListener('click', () => {
@@ -285,9 +295,9 @@
           alert('Você está como administrador. Saia para acessar a revenda.');
           return;
         }
-        currentMode = 'revenda';
         showVitrine('revenda');
         carregarProdutos('revenda');
+        currentMode = 'revenda';
         setActiveNav('revenda');
       } else {
         loginContainer.classList.remove('hidden');
@@ -300,6 +310,7 @@
     btnAdminNav.addEventListener('click', () => {
       showAdminPanel();
       carregarAdminProdutos();
+      currentMode = 'admin';
       setActiveNav('admin');
     });
 
@@ -431,7 +442,6 @@
       });
     }
 
-    // Função que decide se adiciona ou atualiza
     async function handleSubmitProduto() {
       const nome = document.getElementById('prod-nome').value.trim();
       const categoria = document.getElementById('prod-categoria').value.trim();
@@ -449,11 +459,9 @@
 
       try {
         if (editingId) {
-          // Atualizar
           await db.collection('produtos').doc(editingId).update(produtoData);
           adminMsg.textContent = 'Produto atualizado!';
         } else {
-          // Adicionar
           await db.collection('produtos').add(produtoData);
           adminMsg.textContent = 'Produto adicionado!';
         }
