@@ -28,6 +28,7 @@
       padding: 12px;
       display: flex;
       justify-content: center;
+      align-items: center;
       gap: 15px;
       box-shadow: 0 2px 5px rgba(0,0,0,0.05);
       flex-wrap: wrap;
@@ -47,6 +48,24 @@
     button:hover, .btn-link:hover { background: #c8e6c9; }
     .active-btn { background: #4caf50; color: white; }
     .active-btn:hover { background: #388e3c; }
+    .carrinho-btn {
+      position: relative;
+      background: #fff3e0;
+    }
+    .carrinho-contador {
+      background: #d84315;
+      color: white;
+      border-radius: 50%;
+      width: 22px;
+      height: 22px;
+      font-size: 0.75rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: -5px;
+      right: -5px;
+    }
     .container { max-width: 1000px; margin: 20px auto; padding: 0 20px; }
     .produtos-grid {
       display: grid;
@@ -61,6 +80,8 @@
       text-align: center;
       box-shadow: 0 5px 15px rgba(0,0,0,0.08);
       transition: transform 0.2s;
+      display: flex;
+      flex-direction: column;
     }
     .card:hover { transform: translateY(-5px); }
     .card .emoji-container {
@@ -92,7 +113,23 @@
       color: #888;
       text-transform: uppercase;
     }
-    .login-box, .admin-panel {
+    .card .descricao {
+      font-size: 0.85rem;
+      color: #555;
+      margin: 5px 0;
+      line-height: 1.2;
+    }
+    .card .btn-add-carrinho {
+      background: #4caf50;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 20px;
+      margin-top: auto;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .login-box, .admin-panel, .carrinho-panel {
       background: white;
       padding: 25px;
       border-radius: 20px;
@@ -100,7 +137,7 @@
       margin: 30px auto;
       box-shadow: 0 5px 15px rgba(0,0,0,0.1);
     }
-    input, select {
+    input, select, textarea {
       width: 100%;
       padding: 12px;
       margin: 8px 0;
@@ -108,6 +145,7 @@
       border-radius: 10px;
       font-size: 1rem;
     }
+    textarea { resize: vertical; }
     .hidden { display: none !important; }
     .admin-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
     .admin-table th, .admin-table td {
@@ -124,6 +162,25 @@
     .actions button { margin: 0 3px; font-size: 0.8rem; padding: 5px 10px; }
     footer { text-align: center; padding: 20px; color: #777; font-size: 0.9rem; }
     .btn-logout { background: #ffab91; color: #bf360c; }
+    .carrinho-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+    .carrinho-item button { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 0 5px; }
+    .btn-finalizar {
+      background: #25d366;
+      color: white;
+      border: none;
+      padding: 12px 25px;
+      border-radius: 30px;
+      font-weight: bold;
+      width: 100%;
+      margin-top: 15px;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
@@ -136,6 +193,7 @@
     <button id="btn-vitrine-publica" class="active-btn">🏪 Produtos (normal)</button>
     <button id="btn-area-revenda">🔒 Área Revenda</button>
     <button id="admin-btn-nav" style="display:none;">⚙️ Administração</button>
+    <button id="btn-carrinho" class="carrinho-btn">🛒 <span id="carrinho-contador" class="carrinho-contador" style="display:none;">0</span></button>
     <button id="btn-logout" class="btn-logout hidden">Sair</button>
   </nav>
 
@@ -154,6 +212,14 @@
       <p id="login-error" style="color:red; margin-top:10px;"></p>
     </div>
 
+    <div id="carrinho-container" class="carrinho-panel hidden">
+      <h2>🛒 Seu Carrinho</h2>
+      <div id="carrinho-itens"></div>
+      <p id="carrinho-total" style="font-weight:bold; margin-top:10px;">Total: R$ 0,00</p>
+      <button id="btn-finalizar" class="btn-finalizar">📱 Finalizar pedido pelo WhatsApp</button>
+      <button id="btn-fechar-carrinho" style="margin-top:10px; width:100%;">← Continuar comprando</button>
+    </div>
+
     <div id="admin-container" class="hidden">
       <div class="admin-panel">
         <h2>Gerenciar Produtos</h2>
@@ -163,6 +229,7 @@
         <input type="number" id="prod-preco-revenda" placeholder="Preço revenda (R$)" step="0.01">
         <input type="text" id="prod-emoji" placeholder="Emoji (🍎🍌 etc.)">
         <input type="text" id="prod-imagem" placeholder="URL da imagem (opcional)">
+        <textarea id="prod-descricao" placeholder="Descrição (opcional)" rows="2"></textarea>
         <button id="btn-add-produto">Adicionar Produto</button>
         <p id="admin-msg" style="margin-top:10px;"></p>
       </div>
@@ -189,7 +256,6 @@
     };
 
     firebase.initializeApp(firebaseConfig);
-    // Persistência LOCAL: login mantido até clicar em "Sair"
     firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL);
 
     const auth = firebase.auth();
@@ -200,6 +266,7 @@
     const produtosGrid = document.getElementById('produtos-grid');
     const loginContainer = document.getElementById('login-container');
     const adminContainer = document.getElementById('admin-container');
+    const carrinhoContainer = document.getElementById('carrinho-container');
     const btnVitrinePublica = document.getElementById('btn-vitrine-publica');
     const btnAreaRevenda = document.getElementById('btn-area-revenda');
     const btnAdminNav = document.getElementById('admin-btn-nav');
@@ -208,12 +275,49 @@
     const loginError = document.getElementById('login-error');
     const btnAddProduto = document.getElementById('btn-add-produto');
     const adminMsg = document.getElementById('admin-msg');
+    const btnCarrinho = document.getElementById('btn-carrinho');
+    const carrinhoContador = document.getElementById('carrinho-contador');
+    const carrinhoItens = document.getElementById('carrinho-itens');
+    const carrinhoTotal = document.getElementById('carrinho-total');
+    const btnFinalizar = document.getElementById('btn-finalizar');
+    const btnFecharCarrinho = document.getElementById('btn-fechar-carrinho');
+    // Novos campos
+    const prodDescricao = document.getElementById('prod-descricao');
+
+    const WHATSAPP_NUMERO = '5585981345379';
 
     let currentMode = 'publico';
     let editingId = null;
     let isAdminUser = false;
+    let carrinho = [];
 
-    // Verifica se o UID está na coleção admins
+    const savedCart = sessionStorage.getItem('carrinho');
+    if (savedCart) {
+      carrinho = JSON.parse(savedCart);
+      atualizarContador();
+    }
+
+    function salvarCarrinho() {
+      sessionStorage.setItem('carrinho', JSON.stringify(carrinho));
+      atualizarContador();
+    }
+
+    function atualizarContador() {
+      const total = carrinho.reduce((s, i) => s + i.quantidade, 0);
+      if (total > 0) {
+        carrinhoContador.style.display = 'flex';
+        carrinhoContador.textContent = total;
+      } else {
+        carrinhoContador.style.display = 'none';
+      }
+    }
+
+    function modoAtual() {
+      if (isAdminUser) return 'admin';
+      if (auth.currentUser) return 'revenda';
+      return 'publico';
+    }
+
     async function checkAdmin(uid) {
       try {
         const doc = await db.collection('admins').doc(uid).get();
@@ -223,7 +327,6 @@
       }
     }
 
-    // Atualiza visibilidade dos botões conforme estado de autenticação
     auth.onAuthStateChanged(async (user) => {
       if (user) {
         isAdminUser = await checkAdmin(user.uid);
@@ -240,7 +343,6 @@
       }
     });
 
-    // Navegação – NENHUM BOTÃO DESLOGA
     btnVitrinePublica.addEventListener('click', () => {
       showVitrine('publico');
       carregarProdutos('publico');
@@ -248,20 +350,19 @@
     });
 
     btnAreaRevenda.addEventListener('click', () => {
-      // Se há usuário logado, vai direto para revenda (admin precisa sair antes)
       if (auth.currentUser) {
         if (isAdminUser) {
-          alert('Você está como administrador. Para ver a área de revenda, clique em "Sair" e entre com uma conta de revendedor.');
+          alert('Administrador, para ver a revenda saia e entre com uma conta de revendedor.');
           return;
         }
         showVitrine('revenda');
         carregarProdutos('revenda');
         setActiveNav('revenda');
       } else {
-        // Não logado → mostra tela de login
         loginContainer.classList.remove('hidden');
         vitrineContainer.classList.add('hidden');
         adminContainer.classList.add('hidden');
+        carrinhoContainer.classList.add('hidden');
         setActiveNav('revenda');
       }
     });
@@ -288,8 +389,6 @@
         await auth.signInWithEmailAndPassword(email, password);
         loginError.textContent = '';
         loginContainer.classList.add('hidden');
-        // Após login, onAuthStateChanged roda e define isAdminUser
-        // Redireciona conforme o tipo de usuário
         if (isAdminUser) {
           showAdminPanel();
           carregarAdminProdutos();
@@ -304,9 +403,90 @@
       }
     });
 
+    btnCarrinho.addEventListener('click', () => {
+      abrirCarrinho();
+    });
+
+    btnFecharCarrinho.addEventListener('click', () => {
+      carrinhoContainer.classList.add('hidden');
+      vitrineContainer.classList.remove('hidden');
+    });
+
+    btnFinalizar.addEventListener('click', () => {
+      if (carrinho.length === 0) {
+        alert('Carrinho vazio!');
+        return;
+      }
+      let texto = '🥬 Hortifruti Família\n\n🛒 *Pedido:*\n';
+      let total = 0;
+      carrinho.forEach(item => {
+        const precoTotal = item.preco * item.quantidade;
+        total += precoTotal;
+        texto += `- ${item.nome} (${item.quantidade}x) - R$ ${precoTotal.toFixed(2).replace('.', ',')}\n`;
+        if (item.descricao) {
+          texto += `  _${item.descricao}_\n`;
+        }
+      });
+      texto += `\n💰 *Total: R$ ${total.toFixed(2).replace('.', ',')}*\n\nObrigado!`;
+      const url = `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`;
+      window.open(url, '_blank');
+    });
+
+    function abrirCarrinho() {
+      carrinhoItens.innerHTML = '';
+      if (carrinho.length === 0) {
+        carrinhoItens.innerHTML = '<p>Carrinho vazio.</p>';
+      } else {
+        carrinho.forEach((item, index) => {
+          const div = document.createElement('div');
+          div.className = 'carrinho-item';
+          div.innerHTML = `
+            <div>
+              <strong>${item.nome}</strong>
+              ${item.descricao ? `<br><small>${item.descricao}</small>` : ''}
+            </div>
+            <span>R$ ${item.preco.toFixed(2).replace('.', ',')}</span>
+            <div>
+              <button data-index="${index}" class="diminuir">➖</button>
+              <span>${item.quantidade}</span>
+              <button data-index="${index}" class="aumentar">➕</button>
+            </div>
+          `;
+          carrinhoItens.appendChild(div);
+        });
+        document.querySelectorAll('.diminuir').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const i = e.target.dataset.index;
+            if (carrinho[i].quantidade > 1) {
+              carrinho[i].quantidade--;
+            } else {
+              carrinho.splice(i, 1);
+            }
+            salvarCarrinho();
+            abrirCarrinho();
+          });
+        });
+        document.querySelectorAll('.aumentar').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            const i = e.target.dataset.index;
+            carrinho[i].quantidade++;
+            salvarCarrinho();
+            abrirCarrinho();
+          });
+        });
+      }
+      const total = carrinho.reduce((s, i) => s + i.preco * i.quantidade, 0);
+      carrinhoTotal.textContent = `Total: R$ ${total.toFixed(2).replace('.', ',')}`;
+      vitrineContainer.classList.add('hidden');
+      adminContainer.classList.add('hidden');
+      loginContainer.classList.add('hidden');
+      carrinhoContainer.classList.remove('hidden');
+    }
+
     function showVitrine(modo) {
       loginContainer.classList.add('hidden');
       adminContainer.classList.add('hidden');
+      carrinhoContainer.classList.add('hidden');
       vitrineContainer.classList.remove('hidden');
       produtosGrid.innerHTML = '';
       loadingEl.style.display = 'block';
@@ -316,6 +496,7 @@
     function showAdminPanel() {
       vitrineContainer.classList.add('hidden');
       loginContainer.classList.add('hidden');
+      carrinhoContainer.classList.add('hidden');
       adminContainer.classList.remove('hidden');
       currentMode = 'admin';
     }
@@ -344,6 +525,23 @@
       return container;
     }
 
+    function adicionarAoCarrinho(produto, preco) {
+      const existente = carrinho.find(i => i.id === produto.id);
+      if (existente) {
+        existente.quantidade++;
+      } else {
+        carrinho.push({
+          id: produto.id,
+          nome: produto.nome,
+          preco: preco,
+          quantidade: 1,
+          descricao: produto.descricao || ''
+        });
+      }
+      salvarCarrinho();
+      alert(`${produto.nome} adicionado ao carrinho!`);
+    }
+
     function carregarProdutos(modo) {
       db.collection('produtos').get().then(snapshot => {
         loadingEl.style.display = 'none';
@@ -359,15 +557,30 @@
           card.appendChild(renderEmojiContainer(data.emoji, data.imagem));
           const nome = data.nome || 'Sem nome';
           const categoria = data.categoria || '';
+          const descricao = data.descricao || '';
           let preco;
           if (modo === 'revenda') {
-            preco = data.precoRevenda ? `R$ ${parseFloat(data.precoRevenda).toFixed(2).replace('.', ',')}` : '—';
+            preco = data.precoRevenda ? parseFloat(data.precoRevenda) : 0;
           } else {
-            preco = data.precoNormal ? `R$ ${parseFloat(data.precoNormal).toFixed(2).replace('.', ',')}` : '—';
+            preco = data.precoNormal ? parseFloat(data.precoNormal) : 0;
           }
+          const precoFormatado = preco ? `R$ ${preco.toFixed(2).replace('.', ',')}` : '—';
           const info = document.createElement('div');
-          info.innerHTML = `<h3>${nome}</h3><div class="categoria">${categoria}</div><div class="preco">${preco}</div>`;
+          info.innerHTML = `
+            <h3>${nome}</h3>
+            <div class="categoria">${categoria}</div>
+            ${descricao ? `<div class="descricao">${descricao}</div>` : ''}
+            <div class="preco">${precoFormatado}</div>
+          `;
           card.appendChild(info);
+
+          const btnAdd = document.createElement('button');
+          btnAdd.className = 'btn-add-carrinho';
+          btnAdd.textContent = '🛒 Adicionar';
+          btnAdd.addEventListener('click', () => {
+            adicionarAoCarrinho({ id: doc.id, nome, descricao }, preco);
+          });
+          card.appendChild(btnAdd);
           produtosGrid.appendChild(card);
         });
       }).catch(err => {
@@ -424,13 +637,14 @@
       const precoRevenda = parseFloat(document.getElementById('prod-preco-revenda').value);
       const emoji = document.getElementById('prod-emoji').value.trim();
       const imagem = document.getElementById('prod-imagem').value.trim();
+      const descricao = document.getElementById('prod-descricao').value.trim();
 
       if (!nome || isNaN(precoNormal) || isNaN(precoRevenda)) {
         adminMsg.textContent = 'Preencha nome e preços corretamente.';
         return;
       }
 
-      const produtoData = { nome, categoria, precoNormal, precoRevenda, emoji, imagem };
+      const produtoData = { nome, categoria, precoNormal, precoRevenda, emoji, imagem, descricao };
 
       try {
         if (editingId) {
@@ -456,6 +670,7 @@
       document.getElementById('prod-preco-revenda').value = '';
       document.getElementById('prod-emoji').value = '';
       document.getElementById('prod-imagem').value = '';
+      document.getElementById('prod-descricao').value = '';
       editingId = null;
       btnAddProduto.textContent = 'Adicionar Produto';
     }
@@ -483,6 +698,7 @@
         document.getElementById('prod-preco-revenda').value = data.precoRevenda || '';
         document.getElementById('prod-emoji').value = data.emoji || '';
         document.getElementById('prod-imagem').value = data.imagem || '';
+        document.getElementById('prod-descricao').value = data.descricao || '';
         editingId = id;
         btnAddProduto.textContent = 'Atualizar Produto';
       } catch (err) {
@@ -490,7 +706,6 @@
       }
     }
 
-    // Inicia vitrine pública
     carregarProdutos('publico');
     setActiveNav('publico');
   </script>
