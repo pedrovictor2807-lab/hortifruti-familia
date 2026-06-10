@@ -312,6 +312,16 @@
     // Carrinho
     btnCarrinho.addEventListener('click', async () => {
       await carregarPromocoes();
+      // 🔍 DIAGNÓSTICO: Mostra quantas promoções carregou e os IDs da primeira
+      if (promocoesCache.length > 0) {
+        let msg = `Promoções carregadas: ${promocoesCache.length}\n`;
+        promocoesCache.forEach(p => {
+          msg += `- ${p.nome}: IDs [${p.produtosIds.join(', ')}]\n`;
+        });
+        alert(msg);
+      } else {
+        alert('Nenhuma promoção encontrada. Verifique as regras do Firestore!');
+      }
       abrirCarrinho();
     });
     btnFecharCarrinho.addEventListener('click', () => {
@@ -320,8 +330,6 @@
     });
     btnFinalizar.addEventListener('click', async () => {
       if (carrinho.length === 0) return alert('Carrinho vazio!');
-
-      // Garantir que as promoções estão carregadas
       await carregarPromocoes();
 
       let totalComDesconto = calcularTotalCarrinho();
