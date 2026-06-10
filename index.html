@@ -530,21 +530,47 @@
       vitrineContainer.classList.remove('hidden');
     });
     btnFinalizar.addEventListener('click', () => {
-      if (carrinho.length === 0) return alert('Carrinho vazio!');
-      let texto = '🥬 Hortifruti Família\n\n🛒 *Pedido:*\n';
-      let total = calcularTotalCarrinho();
-      carrinho.forEach(item => {
-        if (item.tipo === 'unidade') {
-          texto += `- ${item.nome} (${item.quantidade}x) - R$ ${(item.preco * item.quantidade).toFixed(2).replace('.', ',')}\n`;
-        } else {
-          texto += `- ${item.nome} - R$ ${item.valor.toFixed(2).replace('.', ',')} (valor)\n`;
-        }
-        if (item.descricao) texto += `  _${item.descricao}_\n`;
-      });
-      texto += `\n💰 *Total: R$ ${total.toFixed(2).replace('.', ',')}*\n\nObrigado!`;
-      const url = `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`;
-      window.open(url, '_blank');
-    });
+  if (carrinho.length === 0) return alert('Carrinho vazio!');
+
+  // Calcula os totais
+  let totalComDesconto = calcularTotalCarrinho();
+  
+  // Total sem desconto (soma simples de unidades e valores)
+  let totalSemDesconto = 0;
+  carrinho.forEach(item => {
+    if (item.tipo === 'unidade') {
+      totalSemDesconto += item.preco * item.quantidade;
+    } else {
+      totalSemDesconto += item.valor;
+    }
+  });
+
+  let desconto = totalSemDesconto - totalComDesconto;
+
+  // Monta a mensagem
+  let texto = '🥬 Hortifruti Família\n\n🛒 *Pedido:*\n';
+  
+  carrinho.forEach(item => {
+    if (item.tipo === 'unidade') {
+      // Exibe valor normal do item (sem promoção)
+      texto += `- ${item.nome} (${item.quantidade}x) - R$ ${(item.preco * item.quantidade).toFixed(2).replace('.', ',')}\n`;
+    } else {
+      texto += `- ${item.nome} - R$ ${item.valor.toFixed(2).replace('.', ',')} (valor)\n`;
+    }
+    if (item.descricao) texto += `  _${item.descricao}_\n`;
+  });
+
+  // Se há desconto, exibe o valor original e o desconto
+  if (desconto > 0.001) {
+    texto += `\n📋 *Valor original: R$ ${totalSemDesconto.toFixed(2).replace('.', ',')}*`;
+    texto += `\n🎉 *Desconto: -R$ ${desconto.toFixed(2).replace('.', ',')}*`;
+  }
+
+  texto += `\n💰 *Total: R$ ${totalComDesconto.toFixed(2).replace('.', ',')}*\n\nObrigado!`;
+
+  const url = `https://wa.me/${WHATSAPP_NUMERO}?text=${encodeURIComponent(texto)}`;
+  window.open(url, '_blank');
+});
 
     // Filtros
     campoPesquisa.addEventListener('input', () => carregarProdutos(currentMode));
